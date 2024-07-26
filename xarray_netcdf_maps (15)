@@ -1,0 +1,76 @@
+#Import libraries
+import matplotlib
+import matplotlib.pyplot as plt
+import netCDF4
+import numpy as np
+import xarray as xr
+import cartopy.crs as ccrs
+import cartopy.feature as cf
+from cartopy.util import add_cyclic_point
+
+#Open datasets
+ds = xr.open_dataset('http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis/surface/air.sig995.2010.nc') #This particular dataset is from NOAA
+
+#Redirect from NOA A server to the personal computer
+# pathin = '/Users/fl439/Dropbox/teaching_cornell/eas2900_programming/2023_spring/data_2023/'
+pathin = '\\Users\\jaden\\Documents\\Python\\'
+# ds = xr.open_dataset(pathin+'air.sig995.20100101-20201231.nc') # open netcdf file as a xarray dataframe
+ds = xr.open_dataset(pathin+'air.1000mb.20100101-20221231.n3.nc') # open netcdf file as a xarray dataframe
+
+#Individual variables and coordinates can be pulled from this dataset. This format is called a data array
+lat     = ds.lat # extract latitude coordinate
+lon     = ds.lon # extract longitude coordinate
+time    = ds.time # extract time coordinate
+air     = ds.air - 273.15 # extract variable 'air' and subtract 273.15 K to convert to °C
+
+#Calculate average temperature by given day of year
+air_clim = air.groupby('time.dayofyear').mean(dim='time') # group by day and calculate mean (a crude climatology)
+
+air_anom = air.groupby('time.dayofyear') - air_clim # subtract the climatology to create anomalies
+
+print(air_clim.shape)  # inspect dimensions
+print(air_clim.values) # inspect values
+
+# -- select a particular day and store it in a new array
+my_day       = '2020-04-30' #This date format matches the file format
+air_anom_day = air_anom.sel(time = my_day)
+
+#Plot using cartopy. Cartopy is good dealing with geospatial coordinates.
+ax = plt.axes(projection = ccrs.PlateCarree());
+plt.contourf(lon, lat, air_anom_day, transform = ccrs.PlateCarree());
+
+#Add cyclic point to avoid a gap in the 0th meridian!!!
+air_cyc,lon_cyc = add_cyclic_point(air_anom_day, coord = lon)
+
+#Plot netCDF data as a map using PlateCarree
+# -- set up figure with a certain map projection
+fig = plt.figure(figsize = (20, 30)) # create figure
+ax  = plt.axes(projection = ccrs.PlateCarree()) # We'll get to know other projections later
+
+# -- plot the temperature field as a filled contour plot (contourf):
+#    a few notes:
+#    - back slashes: can be use as line break without actually breaking the line
+#    - transform: specify the projection the data is in (PlateCarree is for regular gridded data like ours)
+#    - cmap: choose a colorbar
+#    - levels: limits and increments of plotted data
+#    - extend: clarify that you don't want to cut off the data at the limits you set, but have the colorbar extend beyond the limits
+plt.contourf(lon_cyc, lat, air_cyc, \
+             transform = ccrs.PlateCarree(), \
+             cmap = matplotlib.cm.bwr, \
+             levels = np.linspace(-10,10,21), \
+             extend = 'both')
+
+# -- add colorbar and other cosmetics:
+ax.coastlines() # add coastlines
+ax.add_feature(cf.BORDERS.with_scale('50m'), edgecolor = [.3,.3,.3], linewidth = 0.5) # add country borders
+cb = plt.colorbar(extendfrac = 'auto', shrink = 0.25) # add a colorbar, save it as an object 'cb'
+cb.set_label(label = 'Temperature anomaly ($^\circ$C)') # add a colorbar label by amending a label to the object 'cb'
+ax.set_title('Near-surface air temperature '+my_day) # add a title
+
+# -- place a marker and text at a particular latitude/longitude
+ilat = 42.4     # Ithaca latitude
+ilon = -76.5    # Ithaca longitude
+plt.plot(ilon, ilat, 'gx', markeredgewidth = 2, markersize = 6, label = 'Ithaca') # plot a marker
+plt.text(ilon+5, ilat-10, 'Ithaca', fontsize = 10, color = 'g'); # plot text next to the marker
+
+# plt.show() # actually show the final plot (only needed in normal python script, not jupyter notebook)
