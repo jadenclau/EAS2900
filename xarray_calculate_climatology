@@ -1,0 +1,100 @@
+#Import statements
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import netCDF4
+import xarray as xr
+import cartopy.crs as ccrs
+import cartopy.feature as cf
+from cartopy.util import add_cyclic_point
+
+#Open netCDFs
+pathin = '/Users/jaden/Documents/Python/'
+ds1    = xr.open_dataset(pathin+'air.1000mb.20100101-20221231.n3.nc') # open netcdf file as a xarray dataframe
+ds2    = xr.open_dataset(pathin+'hgt.20100101-20221231.n3.nc') # open netcdf file as a xarray dataframe
+
+# -- Read in data
+lat     = ds1.lat # extract latitude information
+lon     = ds1.lon # extract longitude information
+time    = ds1.time # extract longitude information
+air     = ds1.air - 273.15 # extract variable 'air' and subtract 273.15 K to convert to °C
+hgt     = ds2.hgt.sel(level=1000) # extract variable 'hgt' at a particular pressure level
+
+# -- Calculate anomalies (can take a minute)
+air_clim = air.groupby('time.dayofyear').mean(dim='time') # group by day of year and calculate mean (a crude climatology) time.dayofyear is capability of groupby
+air_anom = air.groupby('time.dayofyear') - air_clim       # subtract the climatology
+hgt_clim = hgt.groupby('time.dayofyear').mean(dim='time') # group by day of year and calculate mean (a crude climatology)
+hgt_anom = hgt.groupby('time.dayofyear') - hgt_clim       # subtract the climatology
+
+# -- Select a day and location
+my_day = '2021-06-28'
+ilat   = 42.4
+ilon   = -76.5
+
+if ilon < 0:
+    ilon2 = ilon + 360 # create altered longitude to fit with coordinate system of data (just needed for plotting marker on map)
+
+# -- Select a particular day
+air_anom_day = air_anom.sel(time=my_day) # select a particular day
+hgt_anom_day = hgt_anom.sel(time=my_day) # select a particular day
+
+# -- Special trick to avoid a gap at the 0th meridian in a global map,
+#    creates new variable and longitude coordinate that have an extra entry at 0th meridian
+air_cyc,lon_cyc = add_cyclic_point(air_anom_day, coord=lon)
+hgt_cyc,lon_cyc = add_cyclic_point(hgt_anom_day, coord=lon)
+
+
+#Different map projections
+# -- choose a projection
+# proj = ccrs.PlateCarree()
+proj = ccrs.Robinson()
+# proj = ccrs.NorthPolarStereo(central_longitude=0)
+# proj = ccrs.Orthographic(central_longitude=-90.,central_latitude=45.)
+
+# Set up figure
+fig = plt.figure(figsize=(20, 30)) # create figure
+ax1 = fig.add_subplot(3,1,1,projection=proj) # create subplot (3,1,1) Tells that it is a 3x1 plot, and at the 1st column
+ax1.coastlines() # add coastlines
+
+# Plot contours of data:
+#    'transform' should still be PlateCarree,
+#    'cmap' = color map of your choice,
+#    'levels' = data range,
+#    'extend' = extend the colorbar beyond the chosen 'levels' with little triangles
+
+# Contours of temperature
+h1 = ax1.contourf(lon_cyc, lat, air_cyc, transform=ccrs.PlateCarree(), cmap=matplotlib.cm.bwr, levels=np.linspace(-10,10,11), extend='both')
+
+# Alternative raster plotting option (helps with seeing the true spatial resolution of the data
+# h1 = ax1.pcolormesh(lon_cyc,lat,air_cyc,transform=ccrs.PlateCarree(),cmap=matplotlib.cm.bwr)
+
+# Contours of geopotential height
+h2 = ax1.contour(lon_cyc, lat, hgt_cyc, transform=ccrs.PlateCarree(), colors=[(.2,.2,.2)], linewidths=1) # plot the data
+
+# Constrain region
+ax1.set_extent([-180,180,0,90],crs=ccrs.PlateCarree()) # one way to select region, doesn't make sense for Orthographic projection, but maybe for other projections
+
+# Add colorbar, specifically for handle 'h1', defined above
+fig.colorbar(h1,extendfrac='auto',label='Temperature anomaly ($\circ$C)')
+
+# Add country borders
+ax1.add_feature(cf.BORDERS.with_scale('50m'),edgecolor=[.3,.3,.3],linewidth=0.5)
+
+# Add title, marker, and text
+ax1.set_title('Air temperature anomaly | 500 hPa geopotential height anomaly | '+my_day) # title
+ax1.plot(ilon,ilat,'gx',markersize=10,label='Ithaca',transform=ccrs.PlateCarree()) # marker
+ax1.text(ilon+5,ilat-10,'Ithaca',fontsize=14,color='g',transform=ccrs.PlateCarree()); # text
+
+
+# Add temperature line plot
+ax2 = fig.add_subplot(3,1,2)
+ax2.plot(time,air_anom.sel(lon=ilon2,lat=ilat,method='nearest')) # note the 'ilon2' defined earlier; 'nearest'=selects closest grid point
+ax2.plot(time.sel(time=my_day),air_anom_day.sel(lon=ilon2,lat=ilat,method='nearest'),'ro') # plot a single point
+ax2.set_title('Near-surface air temperature anomaly at lat='+str(ilat)+', lon='+str(ilon));
+
+
+# Add geopotential height line plot
+ax3 = fig.add_subplot(3,1,3)
+ax3.plot(time,hgt_anom.sel(lon=ilon2,lat=ilat,method='nearest'))
+ax3.plot(time.sel(time=my_day),hgt_anom_day.sel(lon=ilon2,lat=ilat,method='nearest'),'ro')
+ax3.set_title('500 hPa geopotential height anomaly at lat='+str(ilat)+', lon='+str(ilon));
